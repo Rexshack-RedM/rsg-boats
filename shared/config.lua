@@ -28,9 +28,8 @@ Config.ActionRadius   = 15.0  -- server: max distance from the yard to buy / lau
 Config.MaxPointDistance = 300.0 -- launch point / dock must be within this distance of their yard
 Config.StoreRadius    = 60.0  -- shop 'Store Boat' button: boat must be this close to the yard
 
--- Dock / store zone (admins can override position + radius in /boatadmin)
+-- Dock / store zone (defaults to the yard NPC position; admins set position + radius per yard in /boatadmin)
 Config.Dock = {
-    coords      = nil,    -- vector4 fallback; nil = use the yard NPC position
     radius      = 15.0,   -- default store radius around the dock
     minRadius   = 3.0,
     maxRadius   = 100.0,
@@ -57,7 +56,7 @@ Config.Storage = {
     defaultWeight = 50000,   -- grams (rsg-inventory units: player max is 35000)
     maxSlots      = 100,     -- admin panel limit
     maxWeight     = 1000000, -- admin panel limit (rsg-inventory Config.Stash.MaxWeight caps at 10000000)
-    distance      = 3.0,     -- ox_target distance to the boat
+    distance      = 3.0,     -- rsg-target distance to the boat
     showInBoat    = true,    -- opening your inventory while in your boat shows the boat storage in the right panel
 }
 

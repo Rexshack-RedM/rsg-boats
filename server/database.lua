@@ -48,8 +48,8 @@ local Columns = {
     { 'rsg_boats_models', 'slots', 'INT NOT NULL DEFAULT 10' },
     { 'rsg_boats_models', 'weight', 'INT NOT NULL DEFAULT 50000' },
     { 'rsg_boats_owned', 'purchased', 'TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP' },
-    { 'rsg_boats_owned', 'yard', 'INT NULL DEFAULT NULL' },
-    { 'rsg_boats_yards', 'models', 'TEXT NULL DEFAULT NULL' }, -- JSON list of boat models allowed at the yard (NULL = all) -- yard the boat is stored at (NULL = any yard)
+    { 'rsg_boats_owned', 'yard', 'INT NULL DEFAULT NULL' },    -- yard the boat is stored at (NULL = any yard)
+    { 'rsg_boats_yards', 'models', 'TEXT NULL DEFAULT NULL' }, -- JSON list of boat models allowed at the yard (NULL = all)
 }
 
 local function columnExists(tbl, col)

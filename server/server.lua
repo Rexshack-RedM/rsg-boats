@@ -261,7 +261,12 @@ lib.callback.register('rsg-boats:server:launch', function(src, yardId, ownedId)
     if not storedHere(row, yard.id) then notify(src, locale('stored_elsewhere', Yards[row.yard].name), 'error') return false end
 
     local spawn = getSpawn(yard)
-    Active[src] = { ownedId = row.id, netId = nil, yard = yard.id, model = row.model, spawn = spawn }
+    local entry = { ownedId = row.id, netId = nil, yard = yard.id, model = row.model, spawn = spawn }
+    Active[src] = entry
+    -- a client that never reports its boat (crash, modified client) must not lock the slot forever
+    SetTimeout(30000, function()
+        if Active[src] == entry and not entry.netId then Active[src] = nil end
+    end)
     BoatLog('launch', src, locale('wh_boat_launched'), { { locale('wh_f_boat'), ('%s #%s'):format(row.label, row.id) }, { locale('wh_f_yard'), yard.name } })
     return { model = row.model, label = row.label, spawn = spawn }
 end)
@@ -291,11 +296,12 @@ RegisterNetEvent('rsg-boats:server:launchFailed', function()
     if Active[src] and not Active[src].netId then Active[src] = nil end
 end)
 
--- yardId set = shop button at that yard; dockYardId set = dock prompt at that yard's dock
+-- fromDock = false: shop 'Store Boat' button at yardId; true: dock prompt at yardId's dock
 lib.callback.register('rsg-boats:server:store', function(src, yardId, fromDock)
     local Player = RSGCore.Functions.GetPlayer(src)
     local yard = Yards[tonumber(yardId) or -1]
     if not Player or not yard then return false end
+    if onCooldown(src) then notify(src, locale('slow_down'), 'error') return false end
     local a = Active[src]
     if not a then notify(src, locale('no_boat_out'), 'error') return false end
 
@@ -400,6 +406,12 @@ lib.callback.register('rsg-boats:server:transfer', function(src, yardId, ownedId
         if not ok or not accepted then notify(src, locale('transfer_declined', toName), 'error') return false end
         Target = RSGCore.Functions.GetPlayer(targetId)
         if not Target then notify(src, locale('transfer_no_player'), 'error') return false end
+        -- the owner may have launched this boat while the offer was open
+        if Active[src] and Active[src].ownedId == row.id then notify(src, locale('already_out'), 'error') return false end
+        if Config.MaxBoats > 0 then
+            local count = MySQL.scalar.await('SELECT COUNT(*) FROM rsg_boats_owned WHERE citizenid = ?', { Target.PlayerData.citizenid })
+            if (tonumber(count) or 0) >= Config.MaxBoats then notify(src, locale('transfer_target_full'), 'error') return false end
+        end
     end
 
     -- re-check ownership after the wait, and move it in one statement
@@ -616,8 +628,8 @@ lib.callback.register('rsg-boats:server:saveModel', function(src, data)
     if type(data) ~= 'table' then return false end
 
     local model = type(data.model) == 'string' and data.model:gsub('%s+', '') or ''
-    local label = type(data.label) == 'string' and data.label:sub(1, 64) or ''
-    local desc  = type(data.description) == 'string' and data.description:sub(1, 255) or ''
+    local label = cleanName(data.label) or ''
+    local desc  = type(data.description) == 'string' and data.description:gsub('[<>]', ''):sub(1, 255) or ''
     local price = math.floor(tonumber(data.price) or -1)
     local enabled = data.enabled and 1 or 0
     local slots = math.floor(tonumber(data.slots) or -1)

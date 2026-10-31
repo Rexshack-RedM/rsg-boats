@@ -3,7 +3,7 @@
 Boat yards for the RSG Framework. Players buy boats at a yard, launch them, store them at any yard's dock and keep items in each boat's own storage. Admins create and manage every yard in game from an NUI panel. No config editing is needed after install.
 
 ## Features
-- **Multiple boat yards**: each has its own NPC (ox_target), map blip, launch point, dock zone and list of allowed boats.
+- **Multiple boat yards**: each has its own NPC (rsg-target), map blip, launch point, dock zone and list of allowed boats.
 - **Shop** (target the dock foreman, *Browse Boats*):
   - *For Sale*: buy boats this yard sells (cash).
   - *My Boats*: launch, sell back (`Config.SellBackRate`), give to another player, or store the boat that's on the water.
@@ -15,7 +15,7 @@ Boat yards for the RSG Framework. Players buy boats at a yard, launch them, stor
 - **Auto database install**: tables are created and upgraded on start.
 
 ## Install
-1. Requires `rsg-core`, `ox_lib`, `ox_target`, `oxmysql`, `rsg-inventory`.
+1. Requires `rsg-core`, `ox_lib`, `rsg-target`, `oxmysql`, `rsg-inventory`.
 2. Add `ensure rsg-boats` after them in your server.cfg.
 3. Start the server. The tables are created automatically (`Config.AutoInstallDB = true`). To install by hand instead, set it to `false` and run `install.sql`.
 4. The first start creates yard #1 (`Config.Yard.defaultName` at `Config.Yard.coords`) with a rowboat for sale.
@@ -69,9 +69,14 @@ Set these in `server/sv_config.lua`. It is server only, so webhook URLs are neve
 
 ## Security
 - Money, ownership, storage and transfers are handled only on the server, with ownership re-checked in the same SQL statement that changes it.
-- Every shop action checks that the player is at that yard, has a cooldown, and checks the stored yard.
+- Every shop and store action checks that the player is at that yard, has a cooldown, and checks the stored yard.
+- Transfers re-check after the other player accepts: a boat launched while the offer was open can't be given away, and the receiver's boat limit is checked again.
+- A launch the client never confirms is released after 30 seconds, so the player isn't stuck with a phantom boat out.
 - The client's report of the launched boat is only accepted once, for the right model, near the launch point and not already claimed by another player. A modified client can't claim or delete someone else's entity.
 - Admin callbacks check permission (`Config.AdminPermission` or the `command` ACE). Positions are read from the admin's ped on the server.
+
+## Changelog
+- **1.1.1**: switched to rsg-target; fixed a transfer race that could duplicate a boat; stale launches now time out; store action has a cooldown; model labels and descriptions are sanitised; boats that sink no longer leave a stale storage target; shop can't be opened twice; remaining hard-coded UI text moved to locales; removed unused code and config.
 
 ## Data sources
 - `rowboat`: femga/rdr3_discoveries vehicles/vehicles_list.lua (0x9FD6BA58)

@@ -21,7 +21,6 @@ function applyLocales(loc) {
 let shopData = null;
 let adminData = null;
 let busy = false;
-let editing = null;
 
 /* ---------- dropdown helper (no native select) ---------- */
 function setupDd(el, options, value, onChange) {
@@ -233,7 +232,7 @@ function renderModels() {
         <div class="row-actions"><span class="pill ${m.enabled ? 'ok' : ''}">${esc(t(m.enabled ? 'ui_on_sale' : 'ui_hidden'))}</span>
         <button class="wood-btn small" data-edit="${esc(m.model)}">${esc(t('ui_edit'))}</button>
         <button class="wood-btn small muted" data-del="${esc(m.model)}">✕</button></div></div>`).join('')
-        : '<div class="empty">No models yet.</div>';
+        : `<div class="empty">${esc(t('ui_no_models'))}</div>`;
 
     const opts = d.models.map((m) => ({ value: m.model, label: m.label }));
     if (!opts.length) opts.push({ value: 'rowboat', label: 'rowboat' });
@@ -271,7 +270,6 @@ $('dock-radius-btn').onclick = () => { const r = Number($('dock-radius').value);
 $('place-btn').onclick = () => { if (!selYard) return; closeAll(); post('adminPlace', { id: selYard, model: $('placer-dd').dataset.value }); };
 
 function fillForm(m) {
-    editing = m ? m.model : null;
     $('form-label').textContent = m ? t('ui_edit_model', m.model) : t('ui_add_model');
     $('f-model').value = m ? m.model : '';
     $('f-model').disabled = !!m;

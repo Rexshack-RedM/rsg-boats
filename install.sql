@@ -39,5 +39,5 @@ CREATE TABLE IF NOT EXISTS `rsg_boats_settings` (
 );
 
 -- model: femga/rdr3_discoveries vehicles/vehicles_list.lua (0x9FD6BA58 "rowboat")
-INSERT IGNORE INTO `rsg_boats_models` (`model`, `label`, `description`, `price`, `enabled`)
-VALUES ('rowboat', 'Rowboat', 'A sturdy wooden rowboat for rivers and bayous.', 75, 1);
+INSERT IGNORE INTO `rsg_boats_models` (`model`, `label`, `description`, `price`, `enabled`, `slots`, `weight`)
+VALUES ('rowboat', 'Rowboat', 'A sturdy wooden rowboat for rivers and bayous.', 75, 1, 10, 50000);

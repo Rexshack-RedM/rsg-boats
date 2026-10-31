@@ -7,6 +7,7 @@ local uiOpen = false
 local shopYard = nil   -- yard id the shop is open at
 local storePrompt = nil
 local storing = false
+local OpenShop, OpenAdmin -- defined below, used by the NPC target / placer
 
 ---------------------------------------------------------------------
 -- helpers
@@ -49,7 +50,7 @@ end
 local function removeNpc(id)
     local npc = Npcs[id]
     if npc and DoesEntityExist(npc) then
-        exports.ox_target:removeLocalEntity(npc, 'rsg_boats_shop')
+        exports['rsg-target']:removeLocalEntity(npc, 'rsg_boats_shop')
         DeleteEntity(npc)
     end
     Npcs[id] = nil
@@ -69,7 +70,7 @@ local function spawnNpc(y)
     SetModelAsNoLongerNeeded(hash)
     Npcs[y.id] = npc
 
-    exports.ox_target:addLocalEntity(npc, {
+    exports['rsg-target']:addLocalEntity(npc, {
         {
             name = 'rsg_boats_shop',
             label = locale('target_label'),
@@ -121,7 +122,8 @@ end)
 ---------------------------------------------------------------------
 -- shop
 ---------------------------------------------------------------------
-function OpenShop(yardId)
+OpenShop = function(yardId)
+    if uiOpen then return end
     local data = lib.callback.await('rsg-boats:server:getShopData', false, yardId)
     if not data then return end
     shopYard = yardId
@@ -150,7 +152,7 @@ local function launchBoat(info)
     SetEntityAsMissionEntity(veh, true, true)
     activeBoat = veh
     if Config.Storage.enabled then
-        exports.ox_target:addLocalEntity(veh, {
+        exports['rsg-target']:addLocalEntity(veh, {
             {
                 name = 'rsg_boats_storage',
                 label = locale('storage_target'),
@@ -215,7 +217,7 @@ end
 -- the boat (e.g. it was never linked to a net id), delete our own copy so nothing is left floating
 local function clearActiveBoat()
     if activeBoat and DoesEntityExist(activeBoat) then
-        exports.ox_target:removeLocalEntity(activeBoat, 'rsg_boats_storage')
+        exports['rsg-target']:removeLocalEntity(activeBoat, 'rsg_boats_storage')
         SetEntityAsMissionEntity(activeBoat, true, true)
         DeleteEntity(activeBoat)
     end
@@ -274,7 +276,9 @@ CreateThread(function()
                     end
                 end
             end
-        elseif activeBoat and not DoesEntityExist(activeBoat) then
+        elseif activeBoat then
+            -- boat sank or despawned: forget it (the shop's Store button clears it on the server)
+            exports['rsg-target']:removeLocalEntity(activeBoat, 'rsg_boats_storage')
             activeBoat = nil
         end
         if not showing then showStorePrompt(false) end
@@ -362,7 +366,7 @@ end)
 ---------------------------------------------------------------------
 -- admin panel
 ---------------------------------------------------------------------
-function OpenAdmin()
+OpenAdmin = function()
     local data = lib.callback.await('rsg-boats:server:getAdminData', false)
     if not data then return notify(locale('no_permission'), 'error') end
     setUi(true, { action = 'openAdmin', data = data, locales = BoatsUiLocales() })
