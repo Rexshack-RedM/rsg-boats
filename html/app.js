@@ -87,6 +87,7 @@ function closeAll() {
 function requestClose() { closeAll(); post('close'); }
 document.querySelectorAll('[data-close]').forEach((b) => b.onclick = requestClose);
 document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('offer').classList.contains('hidden')) { answerOffer(false); return; }
     if (e.key === 'Escape' && !$('root').classList.contains('hidden')) {
         if (!$('modal').classList.contains('hidden')) { $('modal-no').click(); return; }
         requestClose();
@@ -298,6 +299,15 @@ $('f-save').onclick = async () => {
     if (Array.isArray(list)) { adminData.models = list; renderModels(); fillForm(null); }
 };
 
+/* ---------- transfer offer ---------- */
+function answerOffer(accepted) {
+    if ($('offer').classList.contains('hidden')) return;
+    $('offer').classList.add('hidden');
+    post('offerAnswer', { accepted });
+}
+$('offer-yes').onclick = () => answerOffer(true);
+$('offer-no').onclick = () => answerOffer(false);
+
 /* ---------- messages from Lua ---------- */
 window.addEventListener('message', (e) => {
     const m = e.data || {};
@@ -316,6 +326,21 @@ window.addEventListener('message', (e) => {
             adminData = m.data; fillForm(null); renderAdmin(); show('admin'); break;
         case 'close':
             closeAll(); break;
+        case 'offer': {
+            $('offer-title').textContent = m.title;
+            $('offer-text').textContent = m.text;
+            $('offer-yes').textContent = m.accept;
+            $('offer-no').textContent = m.decline;
+            const fill = $('offer-fill');
+            fill.style.transition = 'none'; fill.style.width = '100%';
+            $('offer').classList.remove('hidden');
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                fill.style.transition = `width ${m.timeout || 20}s linear`; fill.style.width = '0%';
+            }));
+            break;
+        }
+        case 'offerClose':
+            $('offer').classList.add('hidden'); break;
         case 'placer':
             applyLocales(m.locales);
             $('placer').classList.toggle('hidden', !m.show);

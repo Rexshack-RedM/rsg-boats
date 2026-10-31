@@ -7,15 +7,15 @@ Boat yards for the RSG Framework. Players buy boats at a yard, launch them, stor
 - **Shop** (target the dock foreman, *Browse Boats*):
   - *For Sale*: buy boats this yard sells (cash).
   - *My Boats*: launch, sell back (`Config.SellBackRate`), give to another player, or store the boat that's on the water.
-- **Dock storing**: drive into a yard's dock zone (gold ring) and hold **E** on *Store Boat*. The boat is put away and you're placed back on the dock.
+- **Dock storing**: drive into a yard's dock zone (white ring) and hold **E** on *Store Boat*. The boat is put away and you're placed back on the dock.
 - **Boats stay where you leave them**: a boat can only be launched or sold at the yard it's stored at (`Config.LockToYard`). Store it at another dock to move it there.
 - **Boat storage**: every owned boat has its own rsg-inventory stash (`boat_<id>`). Target your boat and choose *Boat Storage*, or open your inventory while sitting in it to see the storage in the right-hand panel. Slots and weight are set per model.
-- **Give a boat**: *Give* in *My Boats*, then the other player's server ID. They must be nearby and accept the popup. The boat keeps its storage and yard.
+- **Give a boat**: *Give* in *My Boats*, then the other player's server ID. They must be nearby and accept the popup (with a countdown) before it times out. Only one offer per player can be open at a time. The boat keeps its storage and yard.
 - **Movable windows**: drag the title area to move the shop or admin window; double-click it to reset. Positions are remembered per player.
 - **Auto database install**: tables are created and upgraded on start.
 
 ## Install
-1. Requires `rsg-core`, `ox_lib`, `rsg-target`, `oxmysql`, `rsg-inventory`.
+1. Requires `rsg-core`, `rsg-target`, `oxmysql`, `rsg-inventory`. ox_lib is **not** needed.
 2. Add `ensure rsg-boats` after them in your server.cfg.
 3. Start the server. The tables are created automatically (`Config.AutoInstallDB = true`). To install by hand instead, set it to `false` and run `install.sql`.
 4. The first start creates yard #1 (`Config.Yard.defaultName` at `Config.Yard.coords`) with a rowboat for sale.
@@ -49,7 +49,7 @@ Moving or deleting a yard is blocked while a player has a boat out from it.
 | `Config.AutoInstallDB`, `Config.DefaultBoats` | Auto install and the boats added on first install |
 | `Config.Debug` | Console debug output |
 
-All text is in `locales/`: player notifications, prompts, target labels, the whole NUI (`ui_*` keys) and Discord webhook embeds (`wh_*` keys). Included languages: en, de, el, es, fr, ja, nl, pl, pt-br and ro. ox_lib picks the language from its `ox:locale` convar (e.g. `setr ox:locale de`).
+All text is in `locales/`: player notifications, prompts, target labels, the whole NUI (`ui_*` keys) and Discord webhook embeds (`wh_*` keys). Included languages: en, de, el, es, fr, ja, nl, pl, pt-br and ro. Locales load through rsg-core (`@rsg-core/shared/locale.lua`); set the language with `setr rsg:locale "de"` in server.cfg (falls back to `ox:locale`, then `en`).
 
 ## Discord webhooks
 Set these in `server/sv_config.lua`. It is server only, so webhook URLs are never sent to players.
@@ -69,13 +69,14 @@ Set these in `server/sv_config.lua`. It is server only, so webhook URLs are neve
 
 ## Security
 - Money, ownership, storage and transfers are handled only on the server, with ownership re-checked in the same SQL statement that changes it.
-- Every shop and store action checks that the player is at that yard, has a cooldown, and checks the stored yard.
+- Every shop, store and boat-storage action checks that the player is at that yard, has a cooldown, and checks the stored yard.
 - Transfers re-check after the other player accepts: a boat launched while the offer was open can't be given away, and the receiver's boat limit is checked again.
 - A launch the client never confirms is released after 30 seconds, so the player isn't stuck with a phantom boat out.
 - The client's report of the launched boat is only accepted once, for the right model, near the launch point and not already claimed by another player. A modified client can't claim or delete someone else's entity.
 - Admin callbacks check permission (`Config.AdminPermission` or the `command` ACE). Positions are read from the admin's ped on the server.
 
 ## Changelog
+- **3.1.0**: removed the ox_lib dependency (rsg-core callbacks, notify and locale loader); the transfer accept popup is now part of the boat NUI with a countdown; fixed the giver's request timing out after 10 seconds while the receiver still had time to accept; a player can only have one transfer offer open at a time; boat storage opening has a cooldown; dock ring uses the monochrome house style; dock loop stops checking other yards after storing.
 - **1.1.1**: switched to rsg-target; fixed a transfer race that could duplicate a boat; stale launches now time out; store action has a cooldown; model labels and descriptions are sanitised; boats that sink no longer leave a stale storage target; shop can't be opened twice; remaining hard-coded UI text moved to locales; removed unused code and config.
 
 ## Data sources

@@ -6,7 +6,6 @@
 --   fields = { { 'Name', 'value' }, ... } (inline) or { name =, value =, inline = }
 ---------------------------------------------------------------------
 local RSGCore = exports['rsg-core']:GetCoreObject()
-lib.locale()
 local W = SvConfig.Webhooks
 
 local queue, sending = {}, false

@@ -1,4 +1,4 @@
-lib.locale()
+local RSGCore = exports['rsg-core']:GetCoreObject()
 
 local Yards = {}       -- [id] = { id, name, coords = vector4, dock = { x, y, z, w, r } }
 local Npcs, Blips = {}, {}
@@ -7,6 +7,8 @@ local uiOpen = false
 local shopYard = nil   -- yard id the shop is open at
 local storePrompt = nil
 local storing = false
+local offerCb = nil    -- pending transfer offer answer
+placingBoat = false    -- set by placer.lua
 local OpenShop, OpenAdmin -- defined below, used by the NPC target / placer
 
 ---------------------------------------------------------------------
@@ -24,10 +26,10 @@ function BoatsLoadModel(model, timeout)
     return hash
 end
 
--- all locale strings for the NUI (ui_* keys), sent with every open so the UI follows ox_lib's language
+-- all locale strings for the NUI (ui_* keys), sent with every open so the UI follows the server language
 function BoatsUiLocales()
     local ui = {}
-    for k, v in pairs(lib.getLocales() or {}) do
+    for k, v in pairs(locale() or {}) do
         if k:sub(1, 3) == 'ui_' then ui[k] = v end
     end
     return ui
@@ -40,8 +42,13 @@ local function setUi(state, payload)
     if not state then SendNUIMessage({ action = 'close' }) end
 end
 
-local function notify(msg, ntype)
-    lib.notify({ title = locale('notify_title'), description = msg, type = ntype or 'inform' })
+function BoatsNotify(msg, ntype)
+    RSGCore.Functions.Notify({ title = locale('notify_title'), description = msg, type = ntype or 'inform', duration = 5000 })
+end
+local notify = BoatsNotify
+
+local function await(name, ...)
+    return RSGCore.Functions.AwaitCallback(name, nil, ...)
 end
 
 ---------------------------------------------------------------------
@@ -106,9 +113,9 @@ end
 RegisterNetEvent('rsg-boats:client:yards', setYards)
 
 CreateThread(function()
-    setYards(lib.callback.await('rsg-boats:server:getYards', false))
+    setYards(await('rsg-boats:server:getYards'))
     while true do
-        local pc = GetEntityCoords(cache.ped)
+        local pc = GetEntityCoords(PlayerPedId())
         local nearest = math.huge
         for id, y in pairs(Yards) do
             local dist = #(pc - y.coords.xyz)
@@ -124,7 +131,7 @@ end)
 ---------------------------------------------------------------------
 OpenShop = function(yardId)
     if uiOpen then return end
-    local data = lib.callback.await('rsg-boats:server:getShopData', false, yardId)
+    local data = await('rsg-boats:server:getShopData', yardId)
     if not data then return end
     shopYard = yardId
     data.hasActive = data.hasActive or (activeBoat ~= nil and DoesEntityExist(activeBoat))
@@ -132,7 +139,7 @@ OpenShop = function(yardId)
 end
 
 local function refreshShop()
-    local data = lib.callback.await('rsg-boats:server:getShopData', false, shopYard)
+    local data = await('rsg-boats:server:getShopData', shopYard)
     if data then SendNUIMessage({ action = 'updateShop', data = data }) end
 end
 
@@ -160,7 +167,7 @@ local function launchBoat(info)
                 distance = Config.Storage.distance,
                 onSelect = function()
                     if DoesEntityExist(veh) then
-                        lib.callback.await('rsg-boats:server:openStorage', false, NetworkGetNetworkIdFromEntity(veh))
+                        await('rsg-boats:server:openStorage', NetworkGetNetworkIdFromEntity(veh))
                     end
                 end,
             }
@@ -176,7 +183,7 @@ local function launchBoat(info)
     SetNetworkIdExistsOnAllMachines(netId, true)
     TriggerServerEvent('rsg-boats:server:launched', netId)
     if Config.Debug then print(('[rsg-boats] launched boat entity %s netId %s'):format(veh, netId)) end
-    if Config.WarpIntoBoat then TaskWarpPedIntoVehicle(cache.ped, veh, -1) end
+    if Config.WarpIntoBoat then TaskWarpPedIntoVehicle(PlayerPedId(), veh, -1) end
     notify(locale('launched', info.label), 'success')
 end
 
@@ -206,7 +213,7 @@ end
 
 local function returnToDock(d)
     if not d or not d.x then return end
-    local ped = cache.ped
+    local ped = PlayerPedId()
     if IsPedInAnyVehicle(ped, false) then ClearPedTasksImmediately(ped) end
     SetEntityCoords(ped, d.x, d.y, d.z - 1.0, false, false, false, false)
     SetEntityHeading(ped, d.w or 0.0)
@@ -230,7 +237,7 @@ local function storeAtDock(yardId)
     -- fade first so the player never sees themselves drop into the water when the boat is removed
     DoScreenFadeOut(500)
     while not IsScreenFadedOut() do Wait(10) end
-    local result = lib.callback.await('rsg-boats:server:store', false, yardId, true)
+    local result = await('rsg-boats:server:store', yardId, true)
     if result then
         clearActiveBoat()
         returnToDock(result)
@@ -244,7 +251,7 @@ CreateThread(function()
     local lastDebug = 0
     while true do
         local sleep = 1000
-        local ped = cache.ped
+        local ped = PlayerPedId()
         local veh = GetVehiclePedIsIn(ped, false)
         local boat = activeBoat and DoesEntityExist(activeBoat) and activeBoat or nil
 
@@ -259,7 +266,7 @@ CreateThread(function()
                     if Config.Dock.showMarker then
                         -- 0x94FDAE17 = cylinder marker (femga markers)
                         Citizen.InvokeNative(0x2A32FAA57B937173, 0x94FDAE17, d.x, d.y, bc.z - 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                            d.r * 2.0, d.r * 2.0, 1.5, 201, 162, 75, 60, false, false, 2, false, nil, nil, false)
+                            d.r * 2.0, d.r * 2.0, 1.5, 255, 255, 255, 50, false, false, 2, false, nil, nil, false)
                     end
                     if Config.Debug and GetGameTimer() - lastDebug > 2000 then
                         lastDebug = GetGameTimer()
@@ -272,6 +279,7 @@ CreateThread(function()
                             showStorePrompt(false)
                             storeAtDock(id)
                             Wait(500)
+                            break
                         end
                     end
                 end
@@ -291,7 +299,7 @@ end)
 ---------------------------------------------------------------------
 RegisterNetEvent('rsg-inventory:client:open', function(_, other)
     if not Config.Storage.enabled or not Config.Storage.showInBoat then return end
-    local veh = GetVehiclePedIsIn(cache.ped, false)
+    local veh = GetVehiclePedIsIn(PlayerPedId(), false)
     if Config.Debug then
         print(('[rsg-boats] inventory open | other %s | activeBoat %s | in vehicle %s'):format(
             other and other.id or 'nil', tostring(activeBoat), tostring(veh)))
@@ -306,18 +314,19 @@ end)
 -- shop NUI
 ---------------------------------------------------------------------
 RegisterNUICallback('close', function(_, cb)
+    if offerCb then answerOffer(false) end
     setUi(false)
     cb('ok')
 end)
 
 RegisterNUICallback('buy', function(data, cb)
-    local ok = lib.callback.await('rsg-boats:server:buy', false, shopYard, data.model)
+    local ok = await('rsg-boats:server:buy', shopYard, data.model)
     cb(ok and true or false)
     if ok then refreshShop() end
 end)
 
 RegisterNUICallback('launch', function(data, cb)
-    local info = lib.callback.await('rsg-boats:server:launch', false, shopYard, data.id)
+    local info = await('rsg-boats:server:launch', shopYard, data.id)
     cb(info and true or false)
     if info then
         setUi(false)
@@ -326,39 +335,52 @@ RegisterNUICallback('launch', function(data, cb)
 end)
 
 RegisterNUICallback('store', function(_, cb)
-    local ok = lib.callback.await('rsg-boats:server:store', false, shopYard, false)
+    local ok = await('rsg-boats:server:store', shopYard, false)
     if ok then clearActiveBoat() end
     cb(ok and true or false)
     if ok then refreshShop() end
 end)
 
 RegisterNUICallback('transfer', function(data, cb)
-    local ok = lib.callback.await('rsg-boats:server:transfer', false, shopYard, data.id, data.target)
+    local ok = RSGCore.Functions.AwaitCallback('rsg-boats:server:transfer', (Config.Transfer.acceptTimeout + 10) * 1000, shopYard, data.id, data.target)
     cb(ok and true or false)
     if ok then refreshShop() end
 end)
 
--- someone offers us a boat
-lib.callback.register('rsg-boats:client:transferOffer', function(fromName, label, yardName)
-    local p = promise.new()
-    CreateThread(function()
-        local res = lib.alertDialog({
-            header = locale('transfer_offer_title'),
-            content = locale('transfer_offer_text', fromName, label, yardName),
-            centered = true,
-            cancel = true,
-            labels = { confirm = locale('transfer_accept'), cancel = locale('transfer_decline') },
-        })
-        if p.state == 0 then p:resolve(res == 'confirm') end
-    end)
+-- someone offers us a boat: answered in our own NUI (no ox_lib dialog)
+local function answerOffer(accepted)
+    if not offerCb then return end
+    local cb = offerCb
+    offerCb = nil
+    SendNUIMessage({ action = 'offerClose' })
+    if not uiOpen then SetNuiFocus(false, false) end
+    cb(accepted == true)
+end
+
+RSGCore.Functions.CreateClientCallback('rsg-boats:client:transferOffer', function(cb, fromName, label, yardName)
+    if offerCb or placingBoat then return cb(false) end
+    offerCb = cb
+    SetNuiFocus(true, true)
+    SendNUIMessage({
+        action = 'offer', locales = BoatsUiLocales(),
+        title = locale('transfer_offer_title'),
+        text = locale('transfer_offer_text', fromName, label, yardName),
+        accept = locale('transfer_accept'), decline = locale('transfer_decline'),
+        timeout = Config.Transfer.acceptTimeout,
+    })
+    local mine = cb
     SetTimeout(Config.Transfer.acceptTimeout * 1000, function()
-        if p.state == 0 then lib.closeAlertDialog() p:resolve(false) end
+        if offerCb == mine then answerOffer(false) end
     end)
-    return Citizen.Await(p)
+end)
+
+RegisterNUICallback('offerAnswer', function(data, cb)
+    cb('ok')
+    answerOffer(data.accepted == true)
 end)
 
 RegisterNUICallback('sell', function(data, cb)
-    local ok = lib.callback.await('rsg-boats:server:sell', false, shopYard, data.id)
+    local ok = await('rsg-boats:server:sell', shopYard, data.id)
     cb(ok and true or false)
     if ok then refreshShop() end
 end)
@@ -367,7 +389,7 @@ end)
 -- admin panel
 ---------------------------------------------------------------------
 OpenAdmin = function()
-    local data = lib.callback.await('rsg-boats:server:getAdminData', false)
+    local data = await('rsg-boats:server:getAdminData')
     if not data then return notify(locale('no_permission'), 'error') end
     setUi(true, { action = 'openAdmin', data = data, locales = BoatsUiLocales() })
 end
@@ -382,35 +404,35 @@ RegisterNUICallback('adminSave', function(data, cb)
         notify(locale('admin_bad_model', model), 'error')
         return cb(false)
     end
-    cb(lib.callback.await('rsg-boats:server:saveModel', false, data) or false)
+    cb(await('rsg-boats:server:saveModel', data) or false)
 end)
 
 RegisterNUICallback('adminDelete', function(data, cb)
-    cb(lib.callback.await('rsg-boats:server:deleteModel', false, data.model) or false)
+    cb(await('rsg-boats:server:deleteModel', data.model) or false)
 end)
 
 RegisterNUICallback('yardCreate', function(data, cb)
-    cb(lib.callback.await('rsg-boats:server:createYard', false, data.name) or false)
+    cb(await('rsg-boats:server:createYard', data.name) or false)
 end)
 
 RegisterNUICallback('yardRename', function(data, cb)
-    cb(lib.callback.await('rsg-boats:server:renameYard', false, data.id, data.name) or false)
+    cb(await('rsg-boats:server:renameYard', data.id, data.name) or false)
 end)
 
 RegisterNUICallback('yardMove', function(data, cb)
-    cb(lib.callback.await('rsg-boats:server:moveYard', false, data.id) or false)
+    cb(await('rsg-boats:server:moveYard', data.id) or false)
 end)
 
 RegisterNUICallback('yardModels', function(data, cb)
-    cb(lib.callback.await('rsg-boats:server:setYardModels', false, data.id, data.all == true, data.models) or false)
+    cb(await('rsg-boats:server:setYardModels', data.id, data.all == true, data.models) or false)
 end)
 
 RegisterNUICallback('yardDelete', function(data, cb)
-    cb(lib.callback.await('rsg-boats:server:deleteYard', false, data.id) or false)
+    cb(await('rsg-boats:server:deleteYard', data.id) or false)
 end)
 
 RegisterNUICallback('adminDock', function(data, cb)
-    cb(lib.callback.await('rsg-boats:server:saveDock', false,
+    cb(await('rsg-boats:server:saveDock', false,
         { yard = data.id, r = tonumber(data.r), usePed = data.usePed == true }) or false)
 end)
 
@@ -431,5 +453,5 @@ AddEventHandler('onResourceStop', function(res)
     clearYards()
     if activeBoat and DoesEntityExist(activeBoat) then DeleteEntity(activeBoat) end
     if storePrompt then PromptDelete(storePrompt) end
-    if uiOpen then SetNuiFocus(false, false) end
+    if uiOpen or offerCb then SetNuiFocus(false, false) end
 end)

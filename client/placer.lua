@@ -1,4 +1,5 @@
 -- Ghost boat placer: admin positions a translucent, non-colliding boat and saves it as the launch point
+local RSGCore = exports['rsg-core']:GetCoreObject()
 local placing = false
 local ghost = nil
 
@@ -18,11 +19,11 @@ function StartBoatPlacer(model, yardId)
     if placing then return end
     local hash = BoatsLoadModel(model)
     if not hash then
-        lib.notify({ title = locale('notify_title'), description = locale('admin_bad_model', model), type = 'error' })
+        BoatsNotify(locale('admin_bad_model', model), 'error')
         return BoatsReopenAdmin()
     end
 
-    local ped = cache.ped
+    local ped = PlayerPedId()
     local start = GetOffsetFromEntityInWorldCoords(ped, 0.0, Config.Placer.startDistance, 0.0)
     local heading = GetEntityHeading(ped)
 
@@ -39,6 +40,7 @@ function StartBoatPlacer(model, yardId)
     SetVehicleDoorsLocked(ghost, 2)
 
     placing = true
+    placingBoat = true
     SendNUIMessage({ action = 'placer', show = true, model = model, locales = BoatsUiLocales() })
 
     CreateThread(function()
@@ -69,7 +71,7 @@ function StartBoatPlacer(model, yardId)
             heading = heading % 360.0
 
             -- keep the ghost within reach of the admin
-            local pc = GetEntityCoords(cache.ped)
+            local pc = GetEntityCoords(PlayerPedId())
             if #(pos - pc) > cfg.maxDistance then
                 pos = pc + (pos - pc) / #(pos - pc) * cfg.maxDistance
             end
@@ -84,16 +86,17 @@ function StartBoatPlacer(model, yardId)
             end
 
             if IsDisabledControlJustReleased(0, k.confirm) then
-                saved = lib.callback.await('rsg-boats:server:saveSpawn', false,
+                saved = RSGCore.Functions.AwaitCallback('rsg-boats:server:saveSpawn', nil,
                     { yard = yardId, x = pos.x, y = pos.y, z = pos.z, w = heading })
                 if saved then placing = false end
             elseif IsDisabledControlJustReleased(0, k.cancel) then
-                lib.notify({ title = locale('notify_title'), description = locale('place_cancel'), type = 'inform' })
+                BoatsNotify(locale('place_cancel'), 'inform')
                 placing = false
             end
         end
 
         deleteGhost()
+        placingBoat = false
         SendNUIMessage({ action = 'placer', show = false })
         Wait(250) -- let the Enter/Backspace release clear before NUI takes focus
         BoatsReopenAdmin()

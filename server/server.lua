@@ -1,16 +1,21 @@
 local RSGCore = exports['rsg-core']:GetCoreObject()
-lib.locale()
 
 local Models = {}    -- [model] = { id, model, label, description, price, enabled }
 local Yards = {}     -- [id] = { id, name, coords = vector4, spawn = vector4|nil, dock = { coords = vector4, radius }|nil, models = { [model] = true }|nil }
 local Active = {}    -- [src] = { ownedId, netId, yard }
 local Cooldowns = {}
+local Offers = {}     -- [targetSrc] = true while a transfer offer is waiting for an answer
 
 ---------------------------------------------------------------------
 -- helpers
 ---------------------------------------------------------------------
 local function notify(src, msg, ntype)
-    TriggerClientEvent('ox_lib:notify', src, { title = locale('notify_title'), description = msg, type = ntype or 'inform' })
+    TriggerClientEvent('RSGCore:Client:Notify', src, { title = locale('notify_title'), description = msg, type = ntype or 'inform', duration = 5000 })
+end
+
+-- rsg-core callback with a plain return value (handlers run in their own thread, so awaits are safe)
+local function callback(name, fn)
+    RSGCore.Functions.CreateCallback(name, function(src, cb, ...) cb(fn(src, ...)) end)
 end
 
 local function onCooldown(src)
@@ -170,7 +175,7 @@ CreateThread(function()
     broadcastYards()
 end)
 
-lib.callback.register('rsg-boats:server:getYards', function() return publicYards() end)
+callback('rsg-boats:server:getYards', function() return publicYards() end)
 
 -- true when this boat may be launched/sold at yardId
 local function storedHere(row, yardId)
@@ -190,7 +195,7 @@ end
 ---------------------------------------------------------------------
 -- shop
 ---------------------------------------------------------------------
-lib.callback.register('rsg-boats:server:getShopData', function(src, yardId)
+callback('rsg-boats:server:getShopData', function(src, yardId)
     local Player = RSGCore.Functions.GetPlayer(src)
     local yard = Yards[tonumber(yardId) or -1]
     if not Player or not yard then return nil end
@@ -219,7 +224,7 @@ lib.callback.register('rsg-boats:server:getShopData', function(src, yardId)
     }
 end)
 
-lib.callback.register('rsg-boats:server:buy', function(src, yardId, model)
+callback('rsg-boats:server:buy', function(src, yardId, model)
     local Player = RSGCore.Functions.GetPlayer(src)
     if not Player or type(model) ~= 'string' then return false end
     if onCooldown(src) then notify(src, locale('slow_down'), 'error') return false end
@@ -246,7 +251,7 @@ lib.callback.register('rsg-boats:server:buy', function(src, yardId, model)
     return true
 end)
 
-lib.callback.register('rsg-boats:server:launch', function(src, yardId, ownedId)
+callback('rsg-boats:server:launch', function(src, yardId, ownedId)
     local Player = RSGCore.Functions.GetPlayer(src)
     local yard = Yards[tonumber(yardId) or -1]
     ownedId = tonumber(ownedId)
@@ -297,7 +302,7 @@ RegisterNetEvent('rsg-boats:server:launchFailed', function()
 end)
 
 -- fromDock = false: shop 'Store Boat' button at yardId; true: dock prompt at yardId's dock
-lib.callback.register('rsg-boats:server:store', function(src, yardId, fromDock)
+callback('rsg-boats:server:store', function(src, yardId, fromDock)
     local Player = RSGCore.Functions.GetPlayer(src)
     local yard = Yards[tonumber(yardId) or -1]
     if not Player or not yard then return false end
@@ -335,7 +340,7 @@ lib.callback.register('rsg-boats:server:store', function(src, yardId, fromDock)
     return dockPayload(yard)
 end)
 
-lib.callback.register('rsg-boats:server:sell', function(src, yardId, ownedId)
+callback('rsg-boats:server:sell', function(src, yardId, ownedId)
     local Player = RSGCore.Functions.GetPlayer(src)
     ownedId = tonumber(ownedId)
     if not Player or not ownedId then return false end
@@ -369,7 +374,7 @@ end)
 ---------------------------------------------------------------------
 -- transfer ownership
 ---------------------------------------------------------------------
-lib.callback.register('rsg-boats:server:transfer', function(src, yardId, ownedId, targetId)
+callback('rsg-boats:server:transfer', function(src, yardId, ownedId, targetId)
     if not Config.Transfer.enabled then return false end
     local Player = RSGCore.Functions.GetPlayer(src)
     local yard = Yards[tonumber(yardId) or -1]
@@ -401,9 +406,13 @@ lib.callback.register('rsg-boats:server:transfer', function(src, yardId, ownedId
     local toName = ('%s %s'):format(Target.PlayerData.charinfo.firstname, Target.PlayerData.charinfo.lastname)
 
     if Config.Transfer.requireAccept then
+        if Offers[targetId] then notify(src, locale('transfer_busy', toName), 'error') return false end
         notify(src, locale('transfer_waiting', toName), 'inform')
-        local ok, accepted = pcall(lib.callback.await, 'rsg-boats:client:transferOffer', targetId, fromName, row.label, yard.name)
-        if not ok or not accepted then notify(src, locale('transfer_declined', toName), 'error') return false end
+        Offers[targetId] = true
+        local accepted = RSGCore.Functions.AwaitClientCallback('rsg-boats:client:transferOffer', targetId,
+            (Config.Transfer.acceptTimeout + 2) * 1000, fromName, row.label, yard.name)
+        Offers[targetId] = nil
+        if accepted ~= true then notify(src, locale('transfer_declined', toName), 'error') return false end
         Target = RSGCore.Functions.GetPlayer(targetId)
         if not Target then notify(src, locale('transfer_no_player'), 'error') return false end
         -- the owner may have launched this boat while the offer was open
@@ -451,8 +460,9 @@ local function openBoatStash(src, a)
     return true
 end
 
-lib.callback.register('rsg-boats:server:openStorage', function(src, netId)
+callback('rsg-boats:server:openStorage', function(src, netId)
     if not Config.Storage.enabled then return false end
+    if onCooldown(src) then return false end
     local a = Active[src]
     if not a or not a.netId or a.netId ~= netId then notify(src, locale('storage_not_yours'), 'error') return false end
 
@@ -495,13 +505,13 @@ local function adminData()
     return { models = modelList(false), yards = adminYards() }
 end
 
-lib.callback.register('rsg-boats:server:getAdminData', function(src)
+callback('rsg-boats:server:getAdminData', function(src)
     if not isAdmin(src) then return nil end
     return adminData()
 end)
 
 -- yards ---------------------------------------------------------------
-lib.callback.register('rsg-boats:server:createYard', function(src, name)
+callback('rsg-boats:server:createYard', function(src, name)
     if not isAdmin(src) then notify(src, locale('no_permission'), 'error') return false end
     name = cleanName(name)
     if not name then notify(src, locale('yard_bad_name'), 'error') return false end
@@ -517,7 +527,7 @@ lib.callback.register('rsg-boats:server:createYard', function(src, name)
     return d
 end)
 
-lib.callback.register('rsg-boats:server:renameYard', function(src, id, name)
+callback('rsg-boats:server:renameYard', function(src, id, name)
     if not isAdmin(src) then notify(src, locale('no_permission'), 'error') return false end
     local y = Yards[tonumber(id) or -1]
     name = cleanName(name)
@@ -532,7 +542,7 @@ lib.callback.register('rsg-boats:server:renameYard', function(src, id, name)
     return adminData()
 end)
 
-lib.callback.register('rsg-boats:server:moveYard', function(src, id)
+callback('rsg-boats:server:moveYard', function(src, id)
     if not isAdmin(src) then notify(src, locale('no_permission'), 'error') return false end
     local y = Yards[tonumber(id) or -1]
     if not y then return false end
@@ -547,7 +557,7 @@ lib.callback.register('rsg-boats:server:moveYard', function(src, id)
     return adminData()
 end)
 
-lib.callback.register('rsg-boats:server:deleteYard', function(src, id)
+callback('rsg-boats:server:deleteYard', function(src, id)
     if not isAdmin(src) then notify(src, locale('no_permission'), 'error') return false end
     local y = Yards[tonumber(id) or -1]
     if not y then return false end
@@ -562,7 +572,7 @@ lib.callback.register('rsg-boats:server:deleteYard', function(src, id)
 end)
 
 -- list = array of model names, or nil/empty with all = true for every boat
-lib.callback.register('rsg-boats:server:setYardModels', function(src, id, all, list)
+callback('rsg-boats:server:setYardModels', function(src, id, all, list)
     if not isAdmin(src) then notify(src, locale('no_permission'), 'error') return false end
     local y = Yards[tonumber(id) or -1]
     if not y then return false end
@@ -581,7 +591,7 @@ lib.callback.register('rsg-boats:server:setYardModels', function(src, id, all, l
     return adminData()
 end)
 
-lib.callback.register('rsg-boats:server:saveSpawn', function(src, pos)
+callback('rsg-boats:server:saveSpawn', function(src, pos)
     if not isAdmin(src) then notify(src, locale('no_permission'), 'error') return false end
     if type(pos) ~= 'table' then return false end
     local y = Yards[tonumber(pos.yard) or -1]
@@ -598,7 +608,7 @@ lib.callback.register('rsg-boats:server:saveSpawn', function(src, pos)
     return true
 end)
 
-lib.callback.register('rsg-boats:server:saveDock', function(src, data)
+callback('rsg-boats:server:saveDock', function(src, data)
     if not isAdmin(src) then notify(src, locale('no_permission'), 'error') return false end
     if type(data) ~= 'table' then return false end
     local y = Yards[tonumber(data.yard) or -1]
@@ -623,7 +633,7 @@ lib.callback.register('rsg-boats:server:saveDock', function(src, data)
 end)
 
 -- models --------------------------------------------------------------
-lib.callback.register('rsg-boats:server:saveModel', function(src, data)
+callback('rsg-boats:server:saveModel', function(src, data)
     if not isAdmin(src) then notify(src, locale('no_permission'), 'error') return false end
     if type(data) ~= 'table' then return false end
 
@@ -653,7 +663,7 @@ lib.callback.register('rsg-boats:server:saveModel', function(src, data)
     return modelList(false)
 end)
 
-lib.callback.register('rsg-boats:server:deleteModel', function(src, model)
+callback('rsg-boats:server:deleteModel', function(src, model)
     if not isAdmin(src) then notify(src, locale('no_permission'), 'error') return false end
     if type(model) ~= 'string' then return false end
     MySQL.update.await('DELETE FROM rsg_boats_models WHERE model = ?', { model })
@@ -677,6 +687,7 @@ local function clearActive(src)
     end
     Active[src] = nil
     Cooldowns[src] = nil
+    Offers[src] = nil
 end
 
 AddEventHandler('playerDropped', function() clearActive(source) end)

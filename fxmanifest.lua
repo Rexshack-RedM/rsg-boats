@@ -4,10 +4,10 @@ game 'rdr3'
 lua54 'yes'
 
 description 'rsg-boats - multi-yard boat shop with dock storing, per-boat storage, transfers and an NUI admin panel'
-version '3.0.0'
+version '3.1.0'
 
 shared_scripts {
-    '@ox_lib/init.lua',
+    '@rsg-core/shared/locale.lua',
     'shared/config.lua'
 }
 
@@ -36,8 +36,7 @@ files {
 
 dependencies {
     'rsg-core',
-    'ox_lib',
     'rsg-target',
-    'oxmysql', 
+    'oxmysql',
     'rsg-inventory'
 }
